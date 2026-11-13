@@ -27,7 +27,7 @@
 | **P2-M6** | `7036adf` | `feat(chat): add multi-turn conversation context management` | Sliding window context builder, name recall test passed | Completed |
 | **P2-M7** | `ac0233a` | `feat(chat): implement request cancellation and interruption states` | AbortController propagation, stop button, token preservation | Completed |
 | **P2-M8** | `8c1ffd5` | `feat(ui): integrate dynamic model selector and AI health status` | Dynamic model dropdown, live Ollama ready indicator, diagnostics | Completed |
-| **P2-M9** | Pending | `test(ai): add integration tests, error handling and AI documentation` | 9 unit tests passed, 42.1 tok/s benchmark, docs written | In Progress |
+| **P2-M9** | `adeadb6` | `test(ai): add integration tests, error handling and AI documentation` | 9 unit tests passed, 42.1 tok/s benchmark, docs written | Completed |
 
 ---
 

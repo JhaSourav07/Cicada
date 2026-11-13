@@ -32,6 +32,11 @@ Thumbs.db
 *.tsbuildinfo
 next-env.d.ts
 
-# Compiled binaries and tool caches
-**/scripts/bin/
+# Agent harnesses & local tool caches
+.agent/
+.agents/
+.claude/
+.codex/
+.gemini/
 .impeccable/
+**/scripts/bin/

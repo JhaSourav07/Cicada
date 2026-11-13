@@ -1,5 +1,6 @@
 import { ObjectId } from "mongodb";
 import { z } from "zod";
+import { SearchSource, SearchMetadata } from "../search/types";
 
 /**
  * MongoDB Document representation of a Conversation.
@@ -30,6 +31,8 @@ export interface MessageDocument {
   content: string;
   model: string | null;
   status: MessageStatus;
+  sources?: SearchSource[];
+  searchMetadata?: SearchMetadata;
   createdAt: Date;
 }
 
@@ -66,6 +69,8 @@ export interface MessageDTO {
   content: string;
   model: string | null;
   status: MessageStatus;
+  sources?: SearchSource[];
+  searchMetadata?: SearchMetadata;
   createdAt: string;
 }
 
@@ -159,6 +164,8 @@ export function messageDocToDTO(doc: MessageDocument): MessageDTO {
     content: doc.content,
     model: doc.model,
     status: doc.status,
+    sources: doc.sources,
+    searchMetadata: doc.searchMetadata,
     createdAt: doc.createdAt.toISOString(),
   };
 }

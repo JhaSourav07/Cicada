@@ -1,6 +1,7 @@
 import { Collection, ObjectId, Filter } from "mongodb";
 import { getDatabase, DatabaseError } from "../mongodb";
 import { MessageDocument, MessageStatus } from "../types";
+import { SearchSource, SearchMetadata } from "../../search/types";
 
 export const MESSAGES_COLLECTION = "messages";
 
@@ -19,6 +20,8 @@ export class MessageRepository {
     content: string;
     model?: string | null;
     status?: MessageStatus;
+    sources?: SearchSource[];
+    searchMetadata?: SearchMetadata;
   }): Promise<MessageDocument> {
     try {
       const collection = await this.getCollection();
@@ -33,6 +36,8 @@ export class MessageRepository {
         content: data.content,
         model: data.model ?? null,
         status: data.status ?? "complete",
+        sources: data.sources,
+        searchMetadata: data.searchMetadata,
         createdAt: new Date(),
       };
 

@@ -5,6 +5,8 @@ import { getModelConfig } from "./model-config";
 export interface ContextBuilderOptions {
   maxMessages?: number;
   maxEstimatedTokens?: number; // Conservative budget for context window (e.g. 6000 tokens for history)
+  systemPrompt?: string;
+  searchContext?: string;
 }
 
 export interface BuiltContext {
@@ -34,8 +36,15 @@ export function buildConversationContext(
   // Reserve ~2000 tokens for system prompt and generation headroom from the 8192 context
   const maxTokens = options?.maxEstimatedTokens || Math.min(config.numCtx - 2048, 6144);
 
-  const systemPrompt = getSystemPrompt();
-  const systemPromptTokens = estimateTokens(systemPrompt);
+  let effectiveSystemPrompt =
+    options?.systemPrompt ||
+    getSystemPrompt({ hasSearchResults: !!options?.searchContext });
+
+  if (options?.searchContext) {
+    effectiveSystemPrompt += `\n\n${options.searchContext}`;
+  }
+
+  const systemPromptTokens = estimateTokens(effectiveSystemPrompt);
 
   // 1. Sanitize: disallow empty content and disallow user-provided system roles
   const validDialogue = rawHistory.filter(
@@ -44,7 +53,7 @@ export function buildConversationContext(
 
   if (validDialogue.length === 0) {
     return {
-      messages: [{ role: "system", content: systemPrompt }],
+      messages: [{ role: "system", content: effectiveSystemPrompt }],
       totalEstimatedTokens: systemPromptTokens,
       trimmedMessageCount: 0,
     };
@@ -80,7 +89,7 @@ export function buildConversationContext(
 
   return {
     messages: [
-      { role: "system", content: systemPrompt },
+      { role: "system", content: effectiveSystemPrompt },
       ...selected,
     ],
     totalEstimatedTokens: currentTokenSum,

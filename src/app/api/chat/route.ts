@@ -3,6 +3,7 @@ import { initializeChatSession } from "@/lib/ai/orchestrator";
 import { ollamaClient, OllamaError } from "@/lib/ai/ollama";
 import { MessageRepository } from "@/lib/db/repositories/message.repository";
 import { ConversationRepository } from "@/lib/db/repositories/conversation.repository";
+import { validateCitations } from "@/lib/search/citations";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,10 +23,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 1. Initialize session: persist user message and reconstruct DB context
+  // 1. Initialize session: persist user message, execute search if indicated, build context
   let session;
   try {
-    session = await initializeChatSession(body);
+    session = await initializeChatSession(body, { signal: req.signal });
   } catch (err: unknown) {
     if (err instanceof OllamaError) {
       return NextResponse.json(
@@ -40,7 +41,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { conversation, targetModel, preparedMessages, userMessageDoc } = session;
+  const { conversation, targetModel, preparedMessages, userMessageDoc, searchPlan } = session;
   const convIdStr = conversation._id.toHexString();
   const encoder = new TextEncoder();
 
@@ -53,15 +54,26 @@ export async function POST(req: NextRequest) {
 
     try {
       if (accumulatedContent.length > 0) {
+        // Validate citations against retrieved sources
+        const validation = validateCitations(accumulatedContent, searchPlan.sources);
+
         const assistantDoc = await MessageRepository.create({
           conversationId: conversation._id,
           role: "assistant",
           content: accumulatedContent,
           model: targetModel,
           status,
+          sources: validation.activeSources.length > 0 ? validation.activeSources : undefined,
+          searchMetadata: {
+            searched: searchPlan.searched,
+            query: searchPlan.query,
+            resultCount: searchPlan.sources.length,
+            searchMode: searchPlan.searchMode,
+            decisionReason: searchPlan.decision.reason,
+          },
         });
         await ConversationRepository.incrementMessageCount(conversation._id, 2);
-        return assistantDoc;
+        return { assistantDoc, activeSources: validation.activeSources };
       } else {
         // Only user message was saved
         await ConversationRepository.incrementMessageCount(conversation._id, 1);
@@ -88,6 +100,35 @@ export async function POST(req: NextRequest) {
           })
         )
       );
+
+      // If search was executed, emit search lifecycle events
+      if (searchPlan.searched && searchPlan.query) {
+        controller.enqueue(
+          encoder.encode(
+            formatSSE("search_started", {
+              query: searchPlan.query,
+            })
+          )
+        );
+
+        controller.enqueue(
+          encoder.encode(
+            formatSSE("search_completed", {
+              resultCount: searchPlan.sources.length,
+            })
+          )
+        );
+
+        if (searchPlan.sources.length > 0) {
+          controller.enqueue(
+            encoder.encode(
+              formatSSE("sources", {
+                sources: searchPlan.sources,
+              })
+            )
+          );
+        }
+      }
 
       try {
         const tokenStream = ollamaClient.chatStream({
@@ -116,16 +157,17 @@ export async function POST(req: NextRequest) {
 
           // Emit completion event on final chunk
           if (chunk.done) {
-            const assistantDoc = await saveAssistantMessage("complete");
+            const saved = await saveAssistantMessage("complete");
             controller.enqueue(
               encoder.encode(
                 formatSSE("done", {
                   conversationId: convIdStr,
-                  messageId: assistantDoc ? assistantDoc._id.toHexString() : null,
+                  messageId: saved?.assistantDoc ? saved.assistantDoc._id.toHexString() : null,
                   finishReason: chunk.done_reason || "stop",
                   evalCount: chunk.eval_count,
                   evalDuration: chunk.eval_duration,
                   totalDuration: chunk.total_duration,
+                  sources: saved?.activeSources || [],
                 })
               )
             );

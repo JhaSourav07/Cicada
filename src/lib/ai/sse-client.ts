@@ -1,3 +1,5 @@
+import { SearchSource } from "../search/types";
+
 export interface SSEEventMap {
   start: {
     conversationId: string;
@@ -6,6 +8,9 @@ export interface SSEEventMap {
     model: string;
     timestamp: string;
   };
+  search_started: { query: string };
+  search_completed: { resultCount: number };
+  sources: { sources: SearchSource[] };
   token: { content: string };
   done: {
     conversationId?: string;
@@ -14,12 +19,16 @@ export interface SSEEventMap {
     evalCount?: number;
     evalDuration?: number;
     totalDuration?: number;
+    sources?: SearchSource[];
   };
   error: { code: string; message: string };
 }
 
 export interface StreamChatHandlers {
   onStart?: (data: SSEEventMap["start"]) => void;
+  onSearchStarted?: (data: SSEEventMap["search_started"]) => void;
+  onSearchCompleted?: (data: SSEEventMap["search_completed"]) => void;
+  onSources?: (data: SSEEventMap["sources"]) => void;
   onToken?: (token: string) => void;
   onDone?: (data: SSEEventMap["done"]) => void;
   onError?: (error: SSEEventMap["error"]) => void;
@@ -72,6 +81,12 @@ export async function consumeSSEStream(
 
           if (eventType === "start" && handlers.onStart) {
             handlers.onStart(parsedData);
+          } else if (eventType === "search_started" && handlers.onSearchStarted) {
+            handlers.onSearchStarted(parsedData);
+          } else if (eventType === "search_completed" && handlers.onSearchCompleted) {
+            handlers.onSearchCompleted(parsedData);
+          } else if (eventType === "sources" && handlers.onSources) {
+            handlers.onSources(parsedData);
           } else if (eventType === "token" && handlers.onToken) {
             handlers.onToken(parsedData.content || "");
           } else if (eventType === "done" && handlers.onDone) {

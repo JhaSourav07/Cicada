@@ -1,3 +1,7 @@
+import { SearchSource, SearchMetadata, SearchMode } from "@/lib/search/types";
+
+export type { SearchSource, SearchMetadata, SearchMode };
+
 export type MessageRole = "user" | "assistant" | "system";
 
 export type MessageStatus = "sending" | "sent" | "error" | "interrupted";
@@ -9,6 +13,8 @@ export interface Message {
   content: string;
   createdAt: string;
   status?: MessageStatus;
+  sources?: SearchSource[];
+  searchMetadata?: SearchMetadata;
 }
 
 export interface Conversation {

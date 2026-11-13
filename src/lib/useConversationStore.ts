@@ -19,8 +19,18 @@ export function useConversationStore() {
   const [hasOlderMessages, setHasOlderMessages] = useState<Record<string, boolean>>({});
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL);
+  const [searchMode, setSearchMode] = useState<"auto" | "on" | "off">("auto");
+  const [searchStatus, setSearchStatus] = useState<{
+    isSearching: boolean;
+    query?: string;
+    resultCount?: number;
+  }>({ isSearching: false });
 
   const abortControllerRef = useRef<AbortController | null>(null);
+  const searchModeRef = useRef<"auto" | "on" | "off">("auto");
+  useEffect(() => {
+    searchModeRef.current = searchMode;
+  }, [searchMode]);
 
   // Helper to fetch messages for a specific conversation from MongoDB
   const fetchMessages = useCallback(async (convId: string) => {
@@ -375,6 +385,7 @@ export function useConversationStore() {
             conversationId: targetConversationId,
             message: userPrompt,
             model: modelToUse,
+            searchMode: searchModeRef.current,
           }),
           signal: controller.signal,
         });
@@ -417,6 +428,29 @@ export function useConversationStore() {
               );
             }
           },
+          onSearchStarted: (searchData) => {
+            setSearchStatus({ isSearching: true, query: searchData.query });
+          },
+          onSearchCompleted: (searchData) => {
+            setSearchStatus((prev) => ({
+              ...prev,
+              isSearching: false,
+              resultCount: searchData.resultCount,
+            }));
+          },
+          onSources: (sourcesData) => {
+            setMessagesByConv((prev) => {
+              const list = prev[targetConversationId] || [];
+              return {
+                ...prev,
+                [targetConversationId]: list.map((m) =>
+                  m.id === assistantMsgId
+                    ? { ...m, sources: sourcesData.sources }
+                    : m
+                ),
+              };
+            });
+          },
           onToken: (token) => {
             accumulatedContent += token;
             setMessagesByConv((prev) => {
@@ -442,11 +476,13 @@ export function useConversationStore() {
                         ...m,
                         id: (doneData.messageId as string) || m.id,
                         status: "sent" as const,
+                        sources: doneData.sources || m.sources,
                       }
                     : m
                 ),
               };
             });
+            setSearchStatus({ isSearching: false });
 
             // Update conversation updatedAt & messageCount
             setConversations((prev) =>
@@ -502,6 +538,7 @@ export function useConversationStore() {
         });
       } finally {
         setIsGenerating(false);
+        setSearchStatus({ isSearching: false });
         abortControllerRef.current = null;
       }
     },
@@ -621,6 +658,9 @@ export function useConversationStore() {
     loadOlderMessages,
     selectedModel,
     changeModel,
+    searchMode,
+    setSearchMode,
+    searchStatus,
     isSettingsOpen,
     openSettings: () => setIsSettingsOpen(true),
     closeSettings: () => setIsSettingsOpen(false),

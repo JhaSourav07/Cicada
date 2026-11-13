@@ -33,6 +33,9 @@ export default function HomePage() {
     stopGeneration,
     regenerateResponse,
     handleSelectStarterPrompt,
+    searchMode,
+    setSearchMode,
+    searchStatus,
   } = useConversationStore();
 
   return (
@@ -65,6 +68,9 @@ export default function HomePage() {
             onRegenerateResponse={regenerateResponse}
             onModelChange={changeModel}
             onSelectPrompt={handleSelectStarterPrompt}
+            searchMode={searchMode}
+            onSearchModeChange={setSearchMode}
+            searchStatus={searchStatus}
           />
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center p-6 text-center">

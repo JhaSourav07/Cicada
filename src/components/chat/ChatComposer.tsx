@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useRef, useEffect } from "react";
-import { ArrowUp, CornerDownLeft, Square } from "lucide-react";
+import { ArrowUp, CornerDownLeft, Square, Globe } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { SearchMode } from "@/types/chat";
 
 interface ChatComposerProps {
   value: string;
@@ -12,6 +13,8 @@ interface ChatComposerProps {
   isGenerating?: boolean;
   disabled?: boolean;
   modelName?: string;
+  searchMode?: SearchMode;
+  onSearchModeChange?: (mode: SearchMode) => void;
 }
 
 export function ChatComposer({
@@ -22,8 +25,17 @@ export function ChatComposer({
   isGenerating = false,
   disabled = false,
   modelName = "qwen3.5:9b",
+  searchMode = "auto",
+  onSearchModeChange,
 }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const cycleSearchMode = () => {
+    if (!onSearchModeChange) return;
+    if (searchMode === "auto") onSearchModeChange("on");
+    else if (searchMode === "on") onSearchModeChange("off");
+    else onSearchModeChange("auto");
+  };
 
   // Auto-resize textarea to fit text up to 180px
   useEffect(() => {
@@ -71,6 +83,25 @@ export function ChatComposer({
           {/* Action Row Inside Textarea Box */}
           <div className="flex items-center justify-between px-3 pb-2 pt-1">
             <div className="flex items-center gap-2 text-[11px] text-content-tertiary">
+              {/* Search Mode Toggle Button */}
+              {onSearchModeChange && (
+                <button
+                  type="button"
+                  onClick={cycleSearchMode}
+                  title={`Web Search: ${searchMode.toUpperCase()} (Click to toggle Auto / On / Off)`}
+                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium transition-colors border ${
+                    searchMode === "on"
+                      ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25"
+                      : searchMode === "off"
+                      ? "bg-surface-elevated/40 text-content-tertiary border-border-subtle hover:text-content-secondary line-through"
+                      : "bg-accent/15 text-accent border-accent/30 hover:bg-accent/25"
+                  }`}
+                >
+                  <Globe className="h-3 w-3" />
+                  <span>Search: {searchMode.toUpperCase()}</span>
+                </button>
+              )}
+
               <span className="hidden sm:inline-flex items-center gap-1 font-mono">
                 <CornerDownLeft className="h-3 w-3" /> {isGenerating ? "Enter to stop" : "Enter to send"}
               </span>

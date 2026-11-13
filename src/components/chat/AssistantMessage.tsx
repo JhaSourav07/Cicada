@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useState } from "react";
-import { Terminal, Copy, Check, RefreshCw, AlertCircle, Ban } from "lucide-react";
+import { Terminal, Copy, Check, RefreshCw, AlertCircle, Ban, Globe } from "lucide-react";
 import { Message } from "@/types/chat";
 import { Badge } from "@/components/ui/Badge";
+import { CitationBadgeList } from "./CitationBadge";
 import { cn } from "@/lib/utils";
 
 interface AssistantMessageProps {
@@ -52,6 +53,37 @@ export function AssistantMessage({
   const isStreaming = message.status === "sending";
   const isInterrupted = message.status === "interrupted";
   const isError = message.status === "error";
+
+  // Replaces [1], [2] citation markers with interactive clickable source badges
+  const renderTextWithCitations = (text: string) => {
+    if (!message.sources || message.sources.length === 0) {
+      return text;
+    }
+
+    const parts = text.split(/(\[\d+\])/g);
+    return parts.map((part, i) => {
+      const match = part.match(/^\[(\d+)\]$/);
+      if (match) {
+        const id = match[1];
+        const source = message.sources?.find((s) => s.id === id);
+        if (source) {
+          return (
+            <a
+              key={i}
+              href={source.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`${source.title} (${source.domain})`}
+              className="inline-flex items-center justify-center px-1 py-0.2 mx-0.5 text-[10px] font-mono font-medium rounded bg-accent/15 text-accent hover:bg-accent/25 hover:underline cursor-pointer align-baseline"
+            >
+              {id}
+            </a>
+          );
+        }
+      }
+      return part;
+    });
+  };
 
   // Simple, robust markdown code fence parser
   const renderFormattedContent = (content: string) => {
@@ -105,10 +137,10 @@ export function AssistantMessage({
         );
       }
 
-      // Inline formatting
+      // Inline formatting with interactive citations
       return (
         <span key={index} className="whitespace-pre-wrap leading-relaxed">
-          {part}
+          {renderTextWithCitations(part)}
         </span>
       );
     });
@@ -129,6 +161,13 @@ export function AssistantMessage({
           <Badge variant="outline" className="text-[10px] py-0 px-1 border-border-subtle font-mono text-content-tertiary">
             {modelName}
           </Badge>
+
+          {message.searchMetadata?.searched && (
+            <Badge variant="outline" className="text-[10px] py-0 px-1 border-accent/40 text-accent font-mono gap-1">
+              <Globe className="h-2.5 w-2.5" />
+              Web
+            </Badge>
+          )}
 
           {isStreaming && (
             <Badge variant="secondary" dot className="text-[10px] py-0 px-1 border-border-subtle text-blue-400">
@@ -168,6 +207,11 @@ export function AssistantMessage({
               <span className="inline-block w-1.5 h-3.5 bg-content-primary animate-pulse ml-0.5 align-middle" />
             )}
           </div>
+
+          {/* Retrieved Web Citations */}
+          {message.sources && message.sources.length > 0 && (
+            <CitationBadgeList sources={message.sources} />
+          )}
 
           {/* Action Toolbar */}
           {!isStreaming && (

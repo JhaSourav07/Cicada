@@ -18,6 +18,7 @@ export default function HomePage() {
     composerValue,
     setComposerValue,
     isGenerating,
+    changeModel,
     isSettingsOpen,
     openSettings,
     closeSettings,
@@ -56,6 +57,7 @@ export default function HomePage() {
             onSendMessage={sendMessage}
             onStopGeneration={stopGeneration}
             onRegenerateResponse={regenerateResponse}
+            onModelChange={changeModel}
             onSelectPrompt={handleSelectStarterPrompt}
           />
         ) : (

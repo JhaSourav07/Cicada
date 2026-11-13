@@ -15,6 +15,7 @@ interface ChatWindowProps {
   onSendMessage: () => void;
   onStopGeneration?: () => void;
   onRegenerateResponse?: () => void;
+  onModelChange?: (model: string) => void;
   onSelectPrompt: (prompt: string) => void;
 }
 
@@ -27,12 +28,18 @@ export function ChatWindow({
   onSendMessage,
   onStopGeneration,
   onRegenerateResponse,
+  onModelChange,
   onSelectPrompt,
 }: ChatWindowProps) {
   return (
     <div className="flex h-full flex-col bg-canvas overflow-hidden">
       {/* Conversation Header */}
-      <ChatHeader title={conversation.title} modelName={conversation.model} />
+      <ChatHeader
+        title={conversation.title}
+        modelName={conversation.model}
+        onModelChange={onModelChange}
+        disabled={isGenerating}
+      />
 
       {/* Message History & Empty State */}
       <MessageList

@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Cpu, Info } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Badge } from "@/components/ui/Badge";
@@ -11,7 +11,33 @@ interface SettingsPanelProps {
   onClose: () => void;
 }
 
+interface HealthData {
+  status: "connected" | "disconnected" | "model_missing";
+  version?: string;
+  availableModelCount?: number;
+  defaultModel?: string;
+  isDefaultModelInstalled?: boolean;
+}
+
 export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
+  const [health, setHealth] = useState<HealthData | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    fetch("/api/ai/health")
+      .then((r) => r.json())
+      .then((d) => setHealth(d))
+      .catch(() => setHealth({ status: "disconnected" }));
+  }, [isOpen]);
+
+  const ollamaStatusText =
+    health?.status === "connected"
+      ? `Connected (Ollama v${health.version || "0.40.16"}, ${health.availableModelCount} models)`
+      : health?.status === "model_missing"
+      ? "Ollama online, default model missing"
+      : "Ollama offline (127.0.0.1:11434 unreachable)";
+
   const services = [
     {
       name: "Next.js Web & API",
@@ -23,9 +49,9 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     {
       name: "Ollama Local LLM",
       address: "127.0.0.1:11434",
-      status: "ready",
-      badgeVariant: "success" as const,
-      detail: "qwen3.5-9b-32k detected",
+      status: health?.status === "connected" ? "connected" : health?.status === "model_missing" ? "warning" : "disconnected",
+      badgeVariant: health?.status === "connected" ? ("success" as const) : ("danger" as const),
+      detail: ollamaStatusText,
     },
     {
       name: "MongoDB Persistence",
@@ -65,15 +91,15 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
             </div>
             <div className="p-2 rounded bg-surface-elevated/70 border border-border-subtle">
               <span className="text-content-tertiary block text-[10px]">GPU</span>
-              NVIDIA RTX 4060 8GB
+              NVIDIA RTX 4060 8GB (100% GPU)
             </div>
             <div className="p-2 rounded bg-surface-elevated/70 border border-border-subtle">
               <span className="text-content-tertiary block text-[10px]">SYSTEM RAM</span>
               16 GB
             </div>
             <div className="p-2 rounded bg-surface-elevated/70 border border-border-subtle">
-              <span className="text-content-tertiary block text-[10px]">LOCAL MODEL</span>
-              qwen3.5-9b-32k
+              <span className="text-content-tertiary block text-[10px]">DEFAULT MODEL</span>
+              {health?.defaultModel || "qwen3.5:9b"}
             </div>
           </div>
         </div>
@@ -103,11 +129,11 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
           </div>
         </div>
 
-        {/* Privacy & Phase 1 Scope Notice */}
+        {/* Privacy & Phase 2 Notice */}
         <div className="flex items-start gap-2 rounded-md bg-surface-elevated/60 border border-border-subtle p-2.5 text-[11px] text-content-secondary">
           <Info className="h-4 w-4 text-blue-400 flex-shrink-0 mt-0.5" />
           <p className="leading-relaxed">
-            In Phase 1, UI state is purely client-side. No mock inference is performed. The real Ollama connection and streaming handlers will be linked during Phase 2.
+            Phase 2 local AI integration active. Chat messages stream directly from your local Ollama instance on loopback with real-time SSE token delivery.
           </p>
         </div>
 

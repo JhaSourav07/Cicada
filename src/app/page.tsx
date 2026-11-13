@@ -18,6 +18,9 @@ export default function HomePage() {
     composerValue,
     setComposerValue,
     isGenerating,
+    hasOlderMessages,
+    isLoadingOlder,
+    loadOlderMessages,
     changeModel,
     isSettingsOpen,
     openSettings,
@@ -53,6 +56,9 @@ export default function HomePage() {
             messages={activeMessages}
             composerValue={composerValue}
             isGenerating={isGenerating}
+            hasOlderMessages={hasOlderMessages}
+            isLoadingOlder={isLoadingOlder}
+            onLoadOlderMessages={loadOlderMessages}
             onComposerChange={setComposerValue}
             onSendMessage={sendMessage}
             onStopGeneration={stopGeneration}

@@ -11,6 +11,9 @@ interface ChatWindowProps {
   messages: Message[];
   composerValue: string;
   isGenerating?: boolean;
+  hasOlderMessages?: boolean;
+  isLoadingOlder?: boolean;
+  onLoadOlderMessages?: () => void;
   onComposerChange: (val: string) => void;
   onSendMessage: () => void;
   onStopGeneration?: () => void;
@@ -24,6 +27,9 @@ export function ChatWindow({
   messages,
   composerValue,
   isGenerating = false,
+  hasOlderMessages = false,
+  isLoadingOlder = false,
+  onLoadOlderMessages,
   onComposerChange,
   onSendMessage,
   onStopGeneration,
@@ -46,6 +52,9 @@ export function ChatWindow({
         messages={messages}
         modelName={conversation.model}
         isGenerating={isGenerating}
+        hasOlderMessages={hasOlderMessages}
+        isLoadingOlder={isLoadingOlder}
+        onLoadOlderMessages={onLoadOlderMessages}
         onSelectPrompt={onSelectPrompt}
         onRegenerate={onRegenerateResponse}
       />

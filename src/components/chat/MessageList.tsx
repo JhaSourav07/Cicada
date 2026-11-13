@@ -12,6 +12,9 @@ interface MessageListProps {
   messages: Message[];
   modelName?: string;
   isGenerating?: boolean;
+  hasOlderMessages?: boolean;
+  isLoadingOlder?: boolean;
+  onLoadOlderMessages?: () => void;
   onSelectPrompt: (prompt: string) => void;
   onRegenerate?: () => void;
 }
@@ -20,6 +23,9 @@ export function MessageList({
   messages,
   modelName,
   isGenerating = false,
+  hasOlderMessages = false,
+  isLoadingOlder = false,
+  onLoadOlderMessages,
   onSelectPrompt,
   onRegenerate,
 }: MessageListProps) {
@@ -61,6 +67,21 @@ export function MessageList({
       onScroll={handleScroll}
       className="flex-1 overflow-y-auto py-4 space-y-2 relative"
     >
+      {/* Load Older Messages Trigger */}
+      {hasOlderMessages && (
+        <div className="flex justify-center pb-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onLoadOlderMessages}
+            disabled={isLoadingOlder}
+            className="text-xs text-content-tertiary hover:text-content-primary"
+          >
+            {isLoadingOlder ? "Loading older messages..." : "Load earlier messages"}
+          </Button>
+        </div>
+      )}
+
       {messages.map((message, index) => {
         if (message.role === "user") {
           return <UserMessage key={message.id} message={message} />;

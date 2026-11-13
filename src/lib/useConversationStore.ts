@@ -16,6 +16,8 @@ export function useConversationStore() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLoadingConversations, setIsLoadingConversations] = useState(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [hasOlderMessages, setHasOlderMessages] = useState<Record<string, boolean>>({});
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL);
 
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -24,7 +26,7 @@ export function useConversationStore() {
   const fetchMessages = useCallback(async (convId: string) => {
     setIsLoadingMessages(true);
     try {
-      const res = await fetch(`/api/conversations/${convId}`);
+      const res = await fetch(`/api/conversations/${convId}/messages?limit=30`);
       if (!res.ok) {
         if (res.status === 404) {
           // If conversation no longer exists in DB, purge it from local list
@@ -56,12 +58,73 @@ export function useConversationStore() {
         ...prev,
         [convId]: messages,
       }));
+      setHasOlderMessages((prev) => ({
+        ...prev,
+        [convId]: !!data.hasMore,
+      }));
     } catch (err) {
       console.error("Failed to load messages from database:", err);
     } finally {
       setIsLoadingMessages(false);
     }
   }, []);
+
+  // Helper to paginate and load older messages via cursor
+  const loadOlderMessages = useCallback(
+    async (convId?: string) => {
+      const targetId = convId || activeId;
+      if (!targetId || isLoadingOlder || !hasOlderMessages[targetId]) return;
+
+      const currentList = messagesByConv[targetId] || [];
+      if (currentList.length === 0) return;
+
+      const oldestMsg = currentList[0];
+      setIsLoadingOlder(true);
+
+      try {
+        const res = await fetch(
+          `/api/conversations/${targetId}/messages?limit=20&before=${oldestMsg.id}`
+        );
+        if (!res.ok) return;
+
+        const data = await res.json();
+        const olderMessages: Message[] = (data.messages || []).map(
+          (m: {
+            id: string;
+            conversationId: string;
+            role: "user" | "assistant" | "system";
+            content: string;
+            status?: string;
+            createdAt: string;
+          }) => ({
+            id: m.id,
+            conversationId: m.conversationId,
+            role: m.role,
+            content: m.content,
+            status: m.status === "interrupted" ? "interrupted" : "sent",
+            createdAt: m.createdAt,
+          })
+        );
+
+        if (olderMessages.length > 0) {
+          setMessagesByConv((prev) => ({
+            ...prev,
+            [targetId]: [...olderMessages, ...(prev[targetId] || [])],
+          }));
+        }
+
+        setHasOlderMessages((prev) => ({
+          ...prev,
+          [targetId]: !!data.hasMore,
+        }));
+      } catch (err) {
+        console.error("Failed to load older messages:", err);
+      } finally {
+        setIsLoadingOlder(false);
+      }
+    },
+    [activeId, isLoadingOlder, hasOlderMessages, messagesByConv]
+  );
 
   // Create conversation in MongoDB
   const createConversation = useCallback(
@@ -553,6 +616,9 @@ export function useConversationStore() {
     isGenerating,
     isLoadingConversations,
     isLoadingMessages,
+    hasOlderMessages: activeId ? !!hasOlderMessages[activeId] : false,
+    isLoadingOlder,
+    loadOlderMessages,
     selectedModel,
     changeModel,
     isSettingsOpen,

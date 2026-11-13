@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ollamaClient, OllamaChatMessage, OllamaError } from "./ollama";
-import { getSystemPrompt } from "./prompts";
 import { getModelConfig } from "./model-config";
+import { buildConversationContext } from "./context-builder";
 
 export const ChatMessageSchema = z.object({
   role: z.enum(["user", "assistant", "system"]),
@@ -27,6 +27,8 @@ export interface OrchestrationResult {
   model: string;
   conversationId: string;
   preparedMessages: OllamaChatMessage[];
+  totalEstimatedTokens: number;
+  trimmedMessageCount: number;
 }
 
 /**
@@ -57,27 +59,16 @@ export async function prepareChatContext(
     );
   }
 
-  // Filter out any client-supplied system messages to avoid prompt injection/overrides
-  const userAndAssistantMessages = messages.filter((m) => m.role !== "system");
-
-  // Sliding window context: keep the most recent messages up to maxHistoryMessages
-  const boundedHistory = userAndAssistantMessages.slice(-config.maxHistoryMessages);
-
-  // Construct final message sequence with CICADA authoritative system prompt at index 0
-  const preparedMessages: OllamaChatMessage[] = [
-    {
-      role: "system",
-      content: getSystemPrompt(),
-    },
-    ...boundedHistory.map((m) => ({
-      role: m.role as "user" | "assistant",
-      content: m.content,
-    })),
-  ];
+  // Build secure, chronological, bounded conversation context
+  const contextResult = buildConversationContext(messages, {
+    maxMessages: config.maxHistoryMessages,
+  });
 
   return {
     model: targetModel,
     conversationId,
-    preparedMessages,
+    preparedMessages: contextResult.messages,
+    totalEstimatedTokens: contextResult.totalEstimatedTokens,
+    trimmedMessageCount: contextResult.trimmedMessageCount,
   };
 }

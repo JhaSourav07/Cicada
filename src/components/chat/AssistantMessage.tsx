@@ -1,15 +1,26 @@
 "use client";
 
 import React, { useState } from "react";
-import { Terminal, Copy, Check, RefreshCw } from "lucide-react";
+import { Terminal, Copy, Check, RefreshCw, AlertCircle, Ban } from "lucide-react";
 import { Message } from "@/types/chat";
 import { Badge } from "@/components/ui/Badge";
+import { cn } from "@/lib/utils";
 
 interface AssistantMessageProps {
   message: Message;
+  modelName?: string;
+  isLatestAssistant?: boolean;
+  isGenerating?: boolean;
+  onRegenerate?: () => void;
 }
 
-export function AssistantMessage({ message }: AssistantMessageProps) {
+export function AssistantMessage({
+  message,
+  modelName = "qwen3.5:9b",
+  isLatestAssistant = false,
+  isGenerating = false,
+  onRegenerate,
+}: AssistantMessageProps) {
   const [copiedAll, setCopiedAll] = useState(false);
   const [copiedBlockIndex, setCopiedBlockIndex] = useState<number | null>(null);
 
@@ -38,8 +49,21 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
     minute: "2-digit",
   });
 
+  const isStreaming = message.status === "sending";
+  const isInterrupted = message.status === "interrupted";
+  const isError = message.status === "error";
+
   // Simple, robust markdown code fence parser
   const renderFormattedContent = (content: string) => {
+    if (!content && isStreaming) {
+      return (
+        <div className="flex items-center gap-2 text-xs text-content-tertiary py-1 font-mono">
+          <span className="inline-block h-2 w-2 rounded-full bg-blue-400 animate-ping" />
+          <span>Generating response from local GPU...</span>
+        </div>
+      );
+    }
+
     const parts = content.split(/(```[\s\S]*?```)/g);
 
     return parts.map((part, index) => {
@@ -81,11 +105,11 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
         );
       }
 
-      // Inline formatting (paragraphs, lists, inline code)
+      // Inline formatting
       return (
-        <div key={index} className="space-y-2 whitespace-pre-wrap leading-relaxed">
+        <span key={index} className="whitespace-pre-wrap leading-relaxed">
           {part}
-        </div>
+        </span>
       );
     });
   };
@@ -101,43 +125,82 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
             </div>
             <span>CICADA</span>
           </div>
+
           <Badge variant="outline" className="text-[10px] py-0 px-1 border-border-subtle font-mono text-content-tertiary">
-            qwen3.5-9b-32k
+            {modelName}
           </Badge>
+
+          {isStreaming && (
+            <Badge variant="secondary" dot className="text-[10px] py-0 px-1 border-border-subtle text-blue-400">
+              Streaming
+            </Badge>
+          )}
+
+          {isInterrupted && (
+            <Badge variant="warning" className="text-[10px] py-0 px-1 gap-1">
+              <Ban className="h-2.5 w-2.5" />
+              Stopped
+            </Badge>
+          )}
+
+          {isError && (
+            <Badge variant="danger" className="text-[10px] py-0 px-1 gap-1">
+              <AlertCircle className="h-2.5 w-2.5" />
+              Error
+            </Badge>
+          )}
+
           <span>{formattedTime}</span>
         </div>
 
         {/* Assistant Content Box */}
-        <div className="w-full rounded-lg rounded-tl-xs bg-surface border border-border-subtle p-4 text-sm text-content-primary shadow-xs">
-          {renderFormattedContent(message.content)}
+        <div
+          className={cn(
+            "w-full rounded-lg rounded-tl-xs border p-4 text-sm text-content-primary shadow-xs transition-colors",
+            isError
+              ? "bg-danger-subtle/20 border-danger/40 text-danger-300"
+              : "bg-surface border-border-subtle"
+          )}
+        >
+          <div className="space-y-2">
+            {renderFormattedContent(message.content)}
+            {isStreaming && (
+              <span className="inline-block w-1.5 h-3.5 bg-content-primary animate-pulse ml-0.5 align-middle" />
+            )}
+          </div>
 
           {/* Action Toolbar */}
-          <div className="mt-3 pt-2.5 border-t border-border-subtle flex items-center justify-between text-xs text-content-tertiary">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleCopyFull}
-                className="flex items-center gap-1.5 px-2 py-1 rounded text-content-secondary hover:text-content-primary hover:bg-surface-elevated transition-colors text-xs"
-              >
-                {copiedAll ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
-                <span>{copiedAll ? "Copied" : "Copy"}</span>
-              </button>
+          {!isStreaming && (
+            <div className="mt-3 pt-2.5 border-t border-border-subtle flex items-center justify-between text-xs text-content-tertiary">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyFull}
+                  className="flex items-center gap-1.5 px-2 py-1 rounded text-content-secondary hover:text-content-primary hover:bg-surface-elevated transition-colors text-xs"
+                >
+                  {copiedAll ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
+                  <span>{copiedAll ? "Copied" : "Copy"}</span>
+                </button>
 
-              <button
-                type="button"
-                disabled
-                title="Regeneration connects with Ollama in Phase 2"
-                className="flex items-center gap-1.5 px-2 py-1 rounded text-content-tertiary opacity-50 cursor-not-allowed text-xs"
-              >
-                <RefreshCw className="h-3 w-3" />
-                <span>Regenerate (Phase 2)</span>
-              </button>
+                {isLatestAssistant && onRegenerate && (
+                  <button
+                    type="button"
+                    onClick={onRegenerate}
+                    disabled={isGenerating}
+                    title="Regenerate this response with local Ollama"
+                    className="flex items-center gap-1.5 px-2 py-1 rounded text-content-secondary hover:text-content-primary hover:bg-surface-elevated disabled:opacity-40 transition-colors text-xs"
+                  >
+                    <RefreshCw className={cn("h-3 w-3", isGenerating && "animate-spin")} />
+                    <span>Regenerate</span>
+                  </button>
+                )}
+              </div>
+
+              <span className="text-[10px] font-mono text-content-tertiary">
+                127.0.0.1:11434 (100% GPU)
+              </span>
             </div>
-
-            <span className="text-[10px] font-mono text-content-tertiary">
-              Ollama / 127.0.0.1:11434
-            </span>
-          </div>
+          )}
         </div>
       </div>
     </div>

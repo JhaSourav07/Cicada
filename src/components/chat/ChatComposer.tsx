@@ -1,25 +1,31 @@
 "use client";
 
 import React, { useRef, useEffect } from "react";
-import { ArrowUp, CornerDownLeft } from "lucide-react";
+import { ArrowUp, CornerDownLeft, Square } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 
 interface ChatComposerProps {
   value: string;
   onChange: (val: string) => void;
   onSend: () => void;
+  onStop?: () => void;
+  isGenerating?: boolean;
   disabled?: boolean;
+  modelName?: string;
 }
 
 export function ChatComposer({
   value,
   onChange,
   onSend,
+  onStop,
+  isGenerating = false,
   disabled = false,
+  modelName = "qwen3.5:9b",
 }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-resize textarea to fit text up to 200px
+  // Auto-resize textarea to fit text up to 180px
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -30,7 +36,9 @@ export function ChatComposer({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (value.trim() && !disabled) {
+      if (isGenerating && onStop) {
+        onStop();
+      } else if (value.trim() && !disabled) {
         onSend();
       }
     }
@@ -50,7 +58,11 @@ export function ChatComposer({
             value={value}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type a message... (Shift + Enter for new line)"
+            placeholder={
+              isGenerating
+                ? "Generating response... Click Stop or press Enter to interrupt."
+                : "Type a message... (Shift + Enter for new line)"
+            }
             disabled={disabled}
             maxLength={maxChars}
             className="w-full resize-none bg-transparent px-3.5 py-3 text-sm text-content-primary placeholder:text-content-tertiary outline-none min-h-[44px] max-h-[180px] leading-relaxed"
@@ -60,7 +72,7 @@ export function ChatComposer({
           <div className="flex items-center justify-between px-3 pb-2 pt-1">
             <div className="flex items-center gap-2 text-[11px] text-content-tertiary">
               <span className="hidden sm:inline-flex items-center gap-1 font-mono">
-                <CornerDownLeft className="h-3 w-3" /> Enter to send
+                <CornerDownLeft className="h-3 w-3" /> {isGenerating ? "Enter to stop" : "Enter to send"}
               </span>
               {charCount > 500 && (
                 <span className="font-mono text-[10px]">
@@ -69,26 +81,40 @@ export function ChatComposer({
               )}
             </div>
 
-            <Button
-              type="button"
-              variant="primary"
-              size="icon-sm"
-              disabled={!value.trim() || disabled}
-              onClick={onSend}
-              title="Send message"
-              className="h-7 w-7 rounded-md bg-content-primary text-canvas hover:bg-white disabled:bg-surface-active disabled:text-content-tertiary transition-colors"
-            >
-              <ArrowUp className="h-4 w-4" />
-            </Button>
+            {isGenerating ? (
+              <Button
+                type="button"
+                variant="danger"
+                size="sm"
+                onClick={onStop}
+                title="Stop generation"
+                className="h-7 px-2.5 rounded-md gap-1.5 text-xs font-medium"
+              >
+                <Square className="h-3 w-3 fill-current" />
+                <span>Stop</span>
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="primary"
+                size="icon-sm"
+                disabled={!value.trim() || disabled}
+                onClick={onSend}
+                title="Send message"
+                className="h-7 w-7 rounded-md bg-content-primary text-canvas hover:bg-white disabled:bg-surface-active disabled:text-content-tertiary transition-colors"
+              >
+                <ArrowUp className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         </div>
 
-        {/* Phase 1 Explanatory Subtitle */}
+        {/* Status / Model Subtitle */}
         <div className="flex items-center justify-between px-1 text-[11px] text-content-tertiary">
           <span>
-            Phase 1: Local AI disconnected. Messages added to conversation history.
+            {isGenerating ? "Generating live tokens via Ollama..." : "Private on-device inference (127.0.0.1:11434)"}
           </span>
-          <span className="font-mono">qwen3.5-9b-32k (Ready for Phase 2)</span>
+          <span className="font-mono">{modelName}</span>
         </div>
       </div>
     </div>

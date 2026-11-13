@@ -10,10 +10,19 @@ import { Button } from "@/components/ui/Button";
 
 interface MessageListProps {
   messages: Message[];
+  modelName?: string;
+  isGenerating?: boolean;
   onSelectPrompt: (prompt: string) => void;
+  onRegenerate?: () => void;
 }
 
-export function MessageList({ messages, onSelectPrompt }: MessageListProps) {
+export function MessageList({
+  messages,
+  modelName,
+  isGenerating = false,
+  onSelectPrompt,
+  onRegenerate,
+}: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
@@ -37,17 +46,35 @@ export function MessageList({ messages, onSelectPrompt }: MessageListProps) {
     return <EmptyState onSelectPrompt={onSelectPrompt} />;
   }
 
+  // Find the index of the latest assistant message
+  let latestAssistantIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "assistant") {
+      latestAssistantIndex = i;
+      break;
+    }
+  }
+
   return (
     <div
       ref={containerRef}
       onScroll={handleScroll}
       className="flex-1 overflow-y-auto py-4 space-y-2 relative"
     >
-      {messages.map((message) => {
+      {messages.map((message, index) => {
         if (message.role === "user") {
           return <UserMessage key={message.id} message={message} />;
         }
-        return <AssistantMessage key={message.id} message={message} />;
+        return (
+          <AssistantMessage
+            key={message.id}
+            message={message}
+            modelName={modelName}
+            isLatestAssistant={index === latestAssistantIndex}
+            isGenerating={isGenerating && index === latestAssistantIndex}
+            onRegenerate={onRegenerate}
+          />
+        );
       })}
       <div ref={bottomRef} className="h-2" />
 

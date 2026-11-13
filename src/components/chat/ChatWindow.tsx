@@ -10,8 +10,11 @@ interface ChatWindowProps {
   conversation: Conversation;
   messages: Message[];
   composerValue: string;
+  isGenerating?: boolean;
   onComposerChange: (val: string) => void;
   onSendMessage: () => void;
+  onStopGeneration?: () => void;
+  onRegenerateResponse?: () => void;
   onSelectPrompt: (prompt: string) => void;
 }
 
@@ -19,8 +22,11 @@ export function ChatWindow({
   conversation,
   messages,
   composerValue,
+  isGenerating = false,
   onComposerChange,
   onSendMessage,
+  onStopGeneration,
+  onRegenerateResponse,
   onSelectPrompt,
 }: ChatWindowProps) {
   return (
@@ -29,13 +35,22 @@ export function ChatWindow({
       <ChatHeader title={conversation.title} modelName={conversation.model} />
 
       {/* Message History & Empty State */}
-      <MessageList messages={messages} onSelectPrompt={onSelectPrompt} />
+      <MessageList
+        messages={messages}
+        modelName={conversation.model}
+        isGenerating={isGenerating}
+        onSelectPrompt={onSelectPrompt}
+        onRegenerate={onRegenerateResponse}
+      />
 
       {/* Composer Input Area */}
       <ChatComposer
         value={composerValue}
         onChange={onComposerChange}
         onSend={onSendMessage}
+        onStop={onStopGeneration}
+        isGenerating={isGenerating}
+        modelName={conversation.model}
       />
     </div>
   );

@@ -17,6 +17,7 @@ export default function HomePage() {
     activeMessages,
     composerValue,
     setComposerValue,
+    isGenerating,
     isSettingsOpen,
     openSettings,
     closeSettings,
@@ -25,6 +26,8 @@ export default function HomePage() {
     renameConversation,
     deleteConversation,
     sendMessage,
+    stopGeneration,
+    regenerateResponse,
     handleSelectStarterPrompt,
   } = useConversationStore();
 
@@ -48,8 +51,11 @@ export default function HomePage() {
             conversation={activeConversation}
             messages={activeMessages}
             composerValue={composerValue}
+            isGenerating={isGenerating}
             onComposerChange={setComposerValue}
             onSendMessage={sendMessage}
+            onStopGeneration={stopGeneration}
+            onRegenerateResponse={regenerateResponse}
             onSelectPrompt={handleSelectStarterPrompt}
           />
         ) : (

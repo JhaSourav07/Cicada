@@ -1,6 +1,6 @@
 export type MessageRole = "user" | "assistant" | "system";
 
-export type MessageStatus = "sending" | "sent" | "error";
+export type MessageStatus = "sending" | "sent" | "error" | "interrupted";
 
 export interface Message {
   id: string;

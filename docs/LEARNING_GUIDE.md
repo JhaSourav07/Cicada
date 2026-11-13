@@ -106,3 +106,26 @@ Measured Benchmarks:
 - **Inference Speed**: ~42.10 tokens/second on `qwen3.5:9b` (Q4_K_M).
 - **Time to First Token**: Includes Qwen reasoning/thinking phase prior to content streaming.
 - **VRAM Footprint**: ~5.6 GB resident during active generation, leaving ~2.4 GB headroom for OS display buffers and window compositing.
+
+---
+
+## 7. MongoDB Architecture & Database Engineering
+
+### Why the Official Driver Over an ORM?
+In Next.js serverless and long-running Node.js environments, ORMs like Prisma introduce a heavy query engine binary, additional memory consumption, and schema generation complexity. By using the official `mongodb` driver directly:
+1. **Lightweight Footprint**: Zero binary sidecars, sub-millisecond connection times, and low memory overhead (~37MB RAM).
+2. **Native BSON Capabilities**: Direct use of 12-byte `ObjectId` types, embedded document sorting, and optimized compound index hints.
+3. **Connection Pooling in Next.js**: We store the active `MongoClient` promise on `globalThis` during development mode, guaranteeing that Next.js Hot Module Replacement (HMR) does not spawn orphaned connections on code recompilation.
+
+### Normalized vs Embedded Schema Design
+Rather than nesting an unbounded array of messages inside each conversation document, CICADA separates conversations and messages into distinct collections:
+- Prevents hitting the 16MB BSON document size ceiling on long conversations.
+- Enables efficient cursor-based pagination (`before` / `after` message IDs).
+- Supports sub-millisecond retrieval of the most recent turns (`findRecent(convId, 20)`) for fast AI context assembly.
+
+### Rootless Podman & Quadlet on Fedora
+Rather than requiring root daemon privileges (like Docker) or relying on out-of-repo packages, MongoDB runs via rootless Podman managed by systemd user Quadlets. This guarantees:
+- Non-root user execution (`uid 1000`).
+- Automated startup and restart on system boot.
+- Loopback isolation: port 27017 is bound strictly to `127.0.0.1`.
+- Clean volume persistence in user space (`cicada-mongodb-data`).

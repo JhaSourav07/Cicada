@@ -24,6 +24,40 @@ export interface OllamaVersionResponse {
   version: string;
 }
 
+export interface RawOllamaModelItem {
+  name: string;
+  model: string;
+  modified_at: string;
+  size: number;
+  digest: string;
+  details?: {
+    parent_model?: string;
+    format?: string;
+    family?: string;
+    families?: string[];
+    parameter_size?: string;
+    quantization_level?: string;
+  };
+}
+
+export interface OllamaModelInfo {
+  name: string;
+  size: number;
+  sizeFormatted: string;
+  parameterSize?: string;
+  quantization?: string;
+  family?: string;
+  modifiedAt: string;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+}
+
 export class OllamaClient {
   private config: ModelConfig;
 
@@ -93,6 +127,85 @@ export class OllamaClient {
       if (externalSignal) {
         externalSignal.removeEventListener("abort", onExternalAbort);
       }
+    }
+  }
+
+  /**
+   * Fetches the list of locally downloaded models from Ollama (/api/tags).
+   */
+  public async listModels(externalSignal?: AbortSignal): Promise<OllamaModelInfo[]> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
+    const onExternalAbort = () => controller.abort();
+    if (externalSignal) {
+      externalSignal.addEventListener("abort", onExternalAbort);
+    }
+
+    try {
+      const response = await fetch(`${this.baseUrl}/api/tags`, {
+        method: "GET",
+        signal: controller.signal,
+        headers: {
+          Accept: "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        throw new OllamaError(
+          `Failed to fetch models from Ollama: HTTP ${response.status}`,
+          "OLLAMA_UNAVAILABLE",
+          response.status
+        );
+      }
+
+      const data = (await response.json()) as { models?: RawOllamaModelItem[] };
+      const rawModels = data.models || [];
+
+      return rawModels.map((m) => ({
+        name: m.name,
+        size: m.size,
+        sizeFormatted: formatBytes(m.size),
+        parameterSize: m.details?.parameter_size,
+        quantization: m.details?.quantization_level,
+        family: m.details?.family,
+        modifiedAt: m.modified_at,
+      }));
+    } catch (err: unknown) {
+      if (err instanceof OllamaError) throw err;
+      if (err instanceof Error) {
+        if (err.name === "AbortError") {
+          throw new OllamaError("Fetching models timed out", "TIMEOUT");
+        }
+        throw new OllamaError(
+          `Failed to reach Ollama at ${this.baseUrl}: ${err.message}`,
+          "OLLAMA_UNAVAILABLE"
+        );
+      }
+      throw new OllamaError("Unknown error fetching models", "INVALID_RESPONSE");
+    } finally {
+      clearTimeout(timeout);
+      if (externalSignal) {
+        externalSignal.removeEventListener("abort", onExternalAbort);
+      }
+    }
+  }
+
+  /**
+   * Checks whether a specific model is installed locally.
+   */
+  public async isModelInstalled(modelName: string): Promise<boolean> {
+    try {
+      const models = await this.listModels();
+      // Match exact name or alias (e.g. "qwen3.5:9b" matches "qwen3.5:9b" or "qwen3.5:9b:latest")
+      return models.some(
+        (m) =>
+          m.name === modelName ||
+          m.name === `${modelName}:latest` ||
+          (modelName.endsWith(":latest") && m.name === modelName.replace(":latest", ""))
+      );
+    } catch {
+      return false;
     }
   }
 }

@@ -11,7 +11,7 @@
 | **Milestone 5** | `05afcb9` | `feat(sidebar): build responsive sidebar with conversation management` | Conversation filter, rename, delete modals, responsive drawer | Completed |
 | **Milestone 6** | `0b22e4b` | `feat(chat): build chat window, message rendering, and composer` | Code blocks, syntax containers, copy actions, multiline composer | Completed |
 | **Milestone 7** | `2790a92` | `feat(state): integrate reactive conversation state and settings panel` | State transitions, model badge, system diagnostic panel | Completed |
-| **Milestone 8** | Pending | `test(ui): verify build, types, linting, accessibility, and design quality` | `npm run build`, `npm run lint`, `tsc --noEmit`, Impeccable detect (0 defects) | In Progress |
+| **Milestone 8** | `ae00416` | `test(ui): verify build, types, linting, accessibility, and design quality` | `npm run build`, `npm run lint`, `tsc --noEmit`, Impeccable detect (0 defects) | Completed |
 
 ---
 

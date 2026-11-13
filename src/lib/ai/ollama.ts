@@ -50,6 +50,37 @@ export interface OllamaModelInfo {
   modifiedAt: string;
 }
 
+export interface OllamaChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface OllamaChatChunk {
+  model: string;
+  created_at: string;
+  message?: {
+    role: "assistant";
+    content: string;
+    thinking?: string;
+  };
+  done: boolean;
+  done_reason?: string;
+  total_duration?: number;
+  load_duration?: number;
+  prompt_eval_count?: number;
+  eval_count?: number;
+  eval_duration?: number;
+}
+
+export interface OllamaChatParams {
+  model?: string;
+  messages: OllamaChatMessage[];
+  numCtx?: number;
+  temperature?: number;
+  keepAlive?: string;
+  signal?: AbortSignal;
+}
+
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
   const k = 1024;
@@ -71,6 +102,10 @@ export class OllamaClient {
 
   public get defaultModel(): string {
     return this.config.defaultModel;
+  }
+
+  public get numCtx(): number {
+    return this.config.numCtx;
   }
 
   /**
@@ -197,7 +232,6 @@ export class OllamaClient {
   public async isModelInstalled(modelName: string): Promise<boolean> {
     try {
       const models = await this.listModels();
-      // Match exact name or alias (e.g. "qwen3.5:9b" matches "qwen3.5:9b" or "qwen3.5:9b:latest")
       return models.some(
         (m) =>
           m.name === modelName ||
@@ -206,6 +240,118 @@ export class OllamaClient {
       );
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Streams a conversational completion from Ollama (POST /api/chat).
+   * Robustly parses newline-delimited JSON (NDJSON) and yields chunks.
+   */
+  public async *chatStream(
+    params: OllamaChatParams
+  ): AsyncGenerator<OllamaChatChunk, void, unknown> {
+    const targetModel = params.model || this.config.defaultModel;
+    const numCtx = params.numCtx || this.config.numCtx;
+    const temperature = params.temperature ?? this.config.temperature;
+    const keepAlive = params.keepAlive || this.config.keepAlive;
+
+    const requestBody = {
+      model: targetModel,
+      messages: params.messages,
+      stream: true,
+      options: {
+        num_ctx: numCtx,
+        temperature: temperature,
+      },
+      keep_alive: keepAlive,
+    };
+
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}/api/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/x-ndjson",
+        },
+        body: JSON.stringify(requestBody),
+        signal: params.signal,
+      });
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        if (err.name === "AbortError") {
+          throw new OllamaError("Chat request aborted", "ABORTED");
+        }
+        throw new OllamaError(
+          `Cannot reach Ollama at ${this.baseUrl}: ${err.message}`,
+          "OLLAMA_UNAVAILABLE"
+        );
+      }
+      throw new OllamaError("Unknown connection failure to Ollama", "OLLAMA_UNAVAILABLE");
+    }
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new OllamaError(
+          `Model "${targetModel}" is not installed in Ollama.`,
+          "MODEL_NOT_FOUND",
+          404
+        );
+      }
+      const errorText = await response.text().catch(() => "");
+      throw new OllamaError(
+        `Ollama chat error (HTTP ${response.status}): ${errorText || response.statusText}`,
+        "STREAM_ERROR",
+        response.status
+      );
+    }
+
+    if (!response.body) {
+      throw new OllamaError("Ollama returned an empty response body", "INVALID_RESPONSE");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        // Keep trailing incomplete fragment in the buffer
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const parsed = JSON.parse(trimmed) as OllamaChatChunk;
+            yield parsed;
+          } catch (jsonErr) {
+            console.error("Failed to parse Ollama NDJSON line:", trimmed, jsonErr);
+          }
+        }
+      }
+
+      // Flush remaining line if any
+      if (buffer.trim()) {
+        try {
+          const parsed = JSON.parse(buffer.trim()) as OllamaChatChunk;
+          yield parsed;
+        } catch (jsonErr) {
+          console.error("Failed to parse trailing Ollama NDJSON:", buffer, jsonErr);
+        }
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new OllamaError("Stream aborted by user", "ABORTED");
+      }
+      throw err;
+    } finally {
+      reader.releaseLock();
     }
   }
 }

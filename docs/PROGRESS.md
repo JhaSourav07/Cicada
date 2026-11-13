@@ -46,6 +46,22 @@
 
 ---
 
+## Phase 4 — Automatic Internet Search & Source Citations (Completed)
+
+| Milestone | Commit Hash | Conventional Commit | Verification & Tests | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| **P4-M1** | `ecb587c` | `feat(search): configure local SearXNG infrastructure` | Rootless Podman Quadlet on `127.0.0.1:8080`, settings.yml, health route | Completed |
+| **P4-M2** | `c102b36` | `feat(search): implement typed SearXNG HTTP client` | Typed SearxngClient, AbortSignal propagation, timeout handling, ping | Completed |
+| **P4-M3** | `7b39645` | `feat(search): add automatic search decision engine` | Deterministic heuristics: freshness, live market, programming filters | Completed |
+| **P4-M4** | `2a88b00` | `feat(search): implement contextual query building and result normalization` | Pronoun resolution, PII stripping, URL sanitization, deduplication | Completed |
+| **P4-M5** | `7d174f5` | `feat(search): add search ranking and bounded context construction` | Title/snippet BM25 scoring, domain diversity cap, bounded evidence block | Completed |
+| **P4-M6** | `aee5791` | `feat(ai): ground Ollama responses with retrieved sources` | Prompt version 2.0.0 grounding, citation validation, hallucination strip | Completed |
+| **P4-M7** | `07cd304` | `feat(api): add search events and validated citation streaming` | SSE search events, MongoDB message source persistence, fallback | Completed |
+| **P4-M8** | `b86ee2d` | `feat(chat): display and persist source citations` | Interactive inline citation links, source cards, search mode toggle | Completed |
+| **P4-M9** | `77002c6` | `test(search): add search, citation and integration coverage` | Full 60 unit/integration tests passed, fallback resilience, end-to-end | Completed |
+
+---
+
 ## Phase 2 Benchmark Results (RTX 4060 8GB / Fedora Linux)
 
 - **Model**: `qwen3.5:9b` (Q4_K_M GGUF)

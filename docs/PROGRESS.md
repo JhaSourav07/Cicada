@@ -15,7 +15,7 @@
 
 ---
 
-## Phase 2 — Local AI Integration with Ollama (In Progress)
+## Phase 2 — Local AI Integration with Ollama (Completed)
 
 | Milestone | Commit Hash | Conventional Commit | Verification & Tests | Status |
 | :--- | :--- | :--- | :--- | :--- |
@@ -28,6 +28,21 @@
 | **P2-M7** | `ac0233a` | `feat(chat): implement request cancellation and interruption states` | AbortController propagation, stop button, token preservation | Completed |
 | **P2-M8** | `8c1ffd5` | `feat(ui): integrate dynamic model selector and AI health status` | Dynamic model dropdown, live Ollama ready indicator, diagnostics | Completed |
 | **P2-M9** | `adeadb6` | `test(ai): add integration tests, error handling and AI documentation` | 9 unit tests passed, 42.1 tok/s benchmark, docs written | Completed |
+
+---
+
+## Phase 3 — MongoDB Integration & Persistent Conversations (Completed)
+
+| Milestone | Commit Hash | Conventional Commit | Verification & Tests | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| **P3-M1** | `473479b` | `feat(db): add MongoDB connection manager and configuration` | Podman Quadlet rootless setup, connection pool, health route | Completed |
+| **P3-M2** | `de1aaa2` | `feat(db): define typed conversation and message repositories` | Typed repositories, schemas, title generation, unit tests | Completed |
+| **P3-M3** | `3753fd4` | `feat(db): implement collection indexes and initialization` | Secondary/compound indexes, idempotent setup, IXSCAN verified | Completed |
+| **P3-M4** | `5df1860` | `feat(api): add persistent conversation CRUD endpoints` | `GET/POST/PATCH/DELETE /api/conversations`, cascade delete | Completed |
+| **P3-M5** | `49624ff` | `feat(api): persist chat messages and reconstruct database context` | User message persistence, dynamic title, DB context build | Completed |
+| **P3-M6** | `7903280` | `feat(chat): integrate database-backed conversation history` | Reactive frontend DB sync, browser refresh persistence | Completed |
+| **P3-M7** | `1b283ed` | `feat(chat): add cursor pagination and conversation search` | Cursor pagination endpoint, scroll pagination in UI | Completed |
+| **P3-M8** | `cc3567a` | `test(db): add repository, API and persistence integration tests` | Full 28-test suite, build validation, architectural documentation | Completed |
 
 ---
 

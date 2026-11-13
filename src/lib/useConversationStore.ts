@@ -5,83 +5,173 @@ import { Conversation, Message } from "@/types/chat";
 import { consumeSSEStream } from "@/lib/ai/sse-client";
 
 const DEFAULT_MODEL = "qwen3.5:9b";
-
-const INITIAL_CONVERSATIONS: Conversation[] = [
-  {
-    id: "conv-welcome",
-    title: "CICADA System Architecture",
-    createdAt: new Date(Date.now() - 3600000).toISOString(),
-    updatedAt: new Date(Date.now() - 1800000).toISOString(),
-    model: DEFAULT_MODEL,
-    messageCount: 2,
-  },
-];
-
-const INITIAL_MESSAGES: Record<string, Message[]> = {
-  "conv-welcome": [
-    {
-      id: "msg-1",
-      conversationId: "conv-welcome",
-      role: "user",
-      content: "What is CICADA and how does its architecture guarantee private local inference?",
-      createdAt: new Date(Date.now() - 3600000).toISOString(),
-      status: "sent",
-    },
-    {
-      id: "msg-2",
-      conversationId: "conv-welcome",
-      role: "assistant",
-      content: `CICADA is a local-first personal AI assistant built for privacy, fast local inference, and developer productivity on Fedora Linux.
-
-### Key Architectural Foundations
-
-1. **Loopback Service Isolation**: All communication occurs on \`127.0.0.1\`. No telemetry or external API keys are used.
-2. **Local Model Inference**: Powered by Ollama running \`qwen3.5:9b\` on your dedicated NVIDIA RTX 4060 GPU with 100% GPU acceleration.
-3. **Real-time SSE Streaming**: Direct token streaming from Ollama via Next.js Route Handlers without third-party cloud dependencies.
-
-\`\`\`bash
-# Core service endpoints (all bound to 127.0.0.1):
-Next.js UI:    http://127.0.0.1:3000
-Ollama LLM:    http://127.0.0.1:11434
-MongoDB:       http://127.0.0.1:27017 (Phase 3)
-SearXNG:       http://127.0.0.1:8080  (Phase 4)
-\`\`\``,
-      createdAt: new Date(Date.now() - 1800000).toISOString(),
-      status: "sent",
-    },
-  ],
-};
+const ACTIVE_CONV_STORAGE_KEY = "cicada_active_conv_id";
 
 export function useConversationStore() {
-  const [conversations, setConversations] = useState<Conversation[]>(INITIAL_CONVERSATIONS);
-  const [activeId, setActiveId] = useState<string | null>("conv-welcome");
-  const [messagesByConv, setMessagesByConv] = useState<Record<string, Message[]>>(INITIAL_MESSAGES);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [messagesByConv, setMessagesByConv] = useState<Record<string, Message[]>>({});
   const [composerValue, setComposerValue] = useState("");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isLoadingConversations, setIsLoadingConversations] = useState(true);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL);
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const createConversation = useCallback(
-    (initialTitle = "New Conversation", model = selectedModel): string => {
-      const newId = `conv-${Date.now()}`;
-      const newConv: Conversation = {
-        id: newId,
-        title: initialTitle,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        model,
-        messageCount: 0,
-      };
+  // Helper to fetch messages for a specific conversation from MongoDB
+  const fetchMessages = useCallback(async (convId: string) => {
+    setIsLoadingMessages(true);
+    try {
+      const res = await fetch(`/api/conversations/${convId}`);
+      if (!res.ok) {
+        if (res.status === 404) {
+          // If conversation no longer exists in DB, purge it from local list
+          setConversations((prev) => prev.filter((c) => c.id !== convId));
+          setActiveId(null);
+        }
+        return;
+      }
+      const data = await res.json();
+      const messages: Message[] = (data.messages || []).map(
+        (m: {
+          id: string;
+          conversationId: string;
+          role: "user" | "assistant" | "system";
+          content: string;
+          status?: string;
+          createdAt: string;
+        }) => ({
+          id: m.id,
+          conversationId: m.conversationId,
+          role: m.role,
+          content: m.content,
+          status: m.status === "interrupted" ? "interrupted" : "sent",
+          createdAt: m.createdAt,
+        })
+      );
 
-      setConversations((prev) => [newConv, ...prev]);
-      setMessagesByConv((prev) => ({ ...prev, [newId]: [] }));
-      setActiveId(newId);
-      setComposerValue("");
-      return newId;
+      setMessagesByConv((prev) => ({
+        ...prev,
+        [convId]: messages,
+      }));
+    } catch (err) {
+      console.error("Failed to load messages from database:", err);
+    } finally {
+      setIsLoadingMessages(false);
+    }
+  }, []);
+
+  // Create conversation in MongoDB
+  const createConversation = useCallback(
+    async (
+      initialTitle = "New Conversation",
+      model = selectedModel
+    ): Promise<string> => {
+      try {
+        const res = await fetch("/api/conversations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: initialTitle, model }),
+        });
+
+        if (!res.ok) {
+          throw new Error(`Failed to create conversation: HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        const newConv: Conversation = data.conversation;
+
+        setConversations((prev) => [newConv, ...prev]);
+        setMessagesByConv((prev) => ({ ...prev, [newConv.id]: [] }));
+        setActiveId(newConv.id);
+        if (typeof window !== "undefined") {
+          localStorage.setItem(ACTIVE_CONV_STORAGE_KEY, newConv.id);
+        }
+        setComposerValue("");
+        return newConv.id;
+      } catch (err) {
+        console.error("Error creating conversation:", err);
+        // Fallback local conversation ID if server failed
+        const fallbackId = `conv-${Date.now()}`;
+        const fallbackConv: Conversation = {
+          id: fallbackId,
+          title: initialTitle,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          model,
+          messageCount: 0,
+        };
+        setConversations((prev) => [fallbackConv, ...prev]);
+        setMessagesByConv((prev) => ({ ...prev, [fallbackId]: [] }));
+        setActiveId(fallbackId);
+        return fallbackId;
+      }
     },
     [selectedModel]
+  );
+
+  // Initial load: Fetch conversations from MongoDB on mount
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInitialData() {
+      setIsLoadingConversations(true);
+      try {
+        const res = await fetch("/api/conversations");
+        if (!res.ok) throw new Error("Failed to load conversations");
+
+        const data = await res.json();
+        const loadedConvs: Conversation[] = data.conversations || [];
+
+        if (!isMounted) return;
+        setConversations(loadedConvs);
+
+        if (loadedConvs.length > 0) {
+          const savedActiveId =
+            typeof window !== "undefined"
+              ? localStorage.getItem(ACTIVE_CONV_STORAGE_KEY)
+              : null;
+
+          const matchedId =
+            savedActiveId && loadedConvs.some((c) => c.id === savedActiveId)
+              ? savedActiveId
+              : loadedConvs[0].id;
+
+          setActiveId(matchedId);
+          fetchMessages(matchedId);
+        } else {
+          // If database is completely empty, create the first persistent conversation
+          const newId = await createConversation("New Conversation");
+          if (isMounted) setActiveId(newId);
+        }
+      } catch (err) {
+        console.error("Database initialization failed:", err);
+      } finally {
+        if (isMounted) setIsLoadingConversations(false);
+      }
+    }
+
+    loadInitialData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [fetchMessages, createConversation]);
+
+  // Select conversation and load its messages if not cached
+  const selectConversation = useCallback(
+    (id: string) => {
+      setActiveId(id);
+      if (typeof window !== "undefined") {
+        localStorage.setItem(ACTIVE_CONV_STORAGE_KEY, id);
+      }
+      if (!messagesByConv[id]) {
+        fetchMessages(id);
+      }
+    },
+    [messagesByConv, fetchMessages]
   );
 
   // Keyboard shortcut: Cmd/Ctrl + N for new conversation
@@ -96,18 +186,28 @@ export function useConversationStore() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [createConversation]);
 
-  const selectConversation = useCallback((id: string) => {
-    setActiveId(id);
-  }, []);
-
-  const renameConversation = useCallback((id: string, newTitle: string) => {
+  // Rename conversation in MongoDB
+  const renameConversation = useCallback(async (id: string, newTitle: string) => {
     setConversations((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, title: newTitle, updatedAt: new Date().toISOString() } : c))
+      prev.map((c) =>
+        c.id === id ? { ...c, title: newTitle, updatedAt: new Date().toISOString() } : c
+      )
     );
+
+    try {
+      await fetch(`/api/conversations/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: newTitle }),
+      });
+    } catch (err) {
+      console.error("Failed to rename conversation in database:", err);
+    }
   }, []);
 
+  // Delete conversation in MongoDB with cascade
   const deleteConversation = useCallback(
-    (id: string) => {
+    async (id: string) => {
       if (isGenerating && abortControllerRef.current) {
         abortControllerRef.current.abort();
         setIsGenerating(false);
@@ -116,19 +216,37 @@ export function useConversationStore() {
       setConversations((prev) => {
         const filtered = prev.filter((c) => c.id !== id);
         if (activeId === id) {
-          setActiveId(filtered.length > 0 ? filtered[0].id : null);
+          const nextActive = filtered.length > 0 ? filtered[0].id : null;
+          setActiveId(nextActive);
+          if (typeof window !== "undefined") {
+            if (nextActive) localStorage.setItem(ACTIVE_CONV_STORAGE_KEY, nextActive);
+            else localStorage.removeItem(ACTIVE_CONV_STORAGE_KEY);
+          }
+          if (nextActive && !messagesByConv[nextActive]) {
+            fetchMessages(nextActive);
+          }
         }
         return filtered;
       });
+
       setMessagesByConv((prev) => {
         const copy = { ...prev };
         delete copy[id];
         return copy;
       });
+
+      try {
+        await fetch(`/api/conversations/${id}`, {
+          method: "DELETE",
+        });
+      } catch (err) {
+        console.error("Failed to delete conversation from database:", err);
+      }
     },
-    [activeId, isGenerating]
+    [activeId, isGenerating, messagesByConv, fetchMessages]
   );
 
+  // Stop active generation
   const stopGeneration = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -145,7 +263,9 @@ export function useConversationStore() {
         const updatedLast: Message = {
           ...lastMsg,
           status: "interrupted",
-          content: lastMsg.content ? `${lastMsg.content}\n\n*[Generation stopped by user]*` : "*[Generation stopped by user]*",
+          content: lastMsg.content
+            ? `${lastMsg.content}\n\n*[Generation stopped by user]*`
+            : "*[Generation stopped by user]*",
         };
         return {
           ...prev,
@@ -156,8 +276,9 @@ export function useConversationStore() {
     });
   }, [activeId]);
 
+  // SSE Stream helper
   const streamFromEndpoint = useCallback(
-    async (targetConversationId: string, history: Message[], modelToUse: string) => {
+    async (targetConversationId: string, userPrompt: string, modelToUse: string) => {
       const controller = new AbortController();
       abortControllerRef.current = controller;
       setIsGenerating(true);
@@ -175,7 +296,10 @@ export function useConversationStore() {
       // Add empty assistant placeholder message
       setMessagesByConv((prev) => ({
         ...prev,
-        [targetConversationId]: [...(prev[targetConversationId] || []), initialAssistantMessage],
+        [targetConversationId]: [
+          ...(prev[targetConversationId] || []),
+          initialAssistantMessage,
+        ],
       }));
 
       try {
@@ -186,18 +310,15 @@ export function useConversationStore() {
           },
           body: JSON.stringify({
             conversationId: targetConversationId,
+            message: userPrompt,
             model: modelToUse,
-            messages: history.map((m) => ({
-              role: m.role,
-              content: m.content,
-            })),
           }),
           signal: controller.signal,
         });
 
         if (!response.ok) {
           const errData = await response.json().catch(() => ({}));
-          const errMsg = errData.error || `HTTP ${response.status}: Failed to reach chat engine`;
+          const errMsg = errData.error || `HTTP ${response.status}: Chat service failure`;
 
           setMessagesByConv((prev) => {
             const list = prev[targetConversationId] || [];
@@ -221,6 +342,18 @@ export function useConversationStore() {
         let accumulatedContent = "";
 
         await consumeSSEStream(response.body, {
+          onStart: (startData) => {
+            // If backend resolved a title update for a new conversation, update it in state
+            if (startData.title) {
+              setConversations((prev) =>
+                prev.map((c) =>
+                  c.id === targetConversationId
+                    ? { ...c, title: startData.title as string }
+                    : c
+                )
+              );
+            }
+          },
           onToken: (token) => {
             accumulatedContent += token;
             setMessagesByConv((prev) => {
@@ -235,18 +368,35 @@ export function useConversationStore() {
               };
             });
           },
-          onDone: () => {
+          onDone: (doneData) => {
             setMessagesByConv((prev) => {
               const list = prev[targetConversationId] || [];
               return {
                 ...prev,
                 [targetConversationId]: list.map((m) =>
                   m.id === assistantMsgId
-                    ? { ...m, status: "sent" as const }
+                    ? {
+                        ...m,
+                        id: (doneData.messageId as string) || m.id,
+                        status: "sent" as const,
+                      }
                     : m
                 ),
               };
             });
+
+            // Update conversation updatedAt & messageCount
+            setConversations((prev) =>
+              prev.map((c) =>
+                c.id === targetConversationId
+                  ? {
+                      ...c,
+                      updatedAt: new Date().toISOString(),
+                      messageCount: (c.messageCount || 0) + 2,
+                    }
+                  : c
+              )
+            );
             setIsGenerating(false);
           },
           onError: (err) => {
@@ -272,11 +422,10 @@ export function useConversationStore() {
         });
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") {
-          // Handled by stopGeneration
           return;
         }
 
-        const msg = err instanceof Error ? err.message : "Unknown communication failure";
+        const msg = err instanceof Error ? err.message : "Network failure";
         setMessagesByConv((prev) => {
           const list = prev[targetConversationId] || [];
           return {
@@ -296,7 +445,8 @@ export function useConversationStore() {
     []
   );
 
-  const sendMessage = useCallback(() => {
+  // Send message
+  const sendMessage = useCallback(async () => {
     if (!composerValue.trim() || isGenerating) return;
 
     let targetId = activeId;
@@ -304,9 +454,7 @@ export function useConversationStore() {
     setComposerValue("");
 
     if (!targetId) {
-      targetId = createConversation(
-        currentText.slice(0, 30) + (currentText.length > 30 ? "..." : "")
-      );
+      targetId = await createConversation();
     }
 
     const now = new Date().toISOString();
@@ -319,51 +467,42 @@ export function useConversationStore() {
       status: "sent",
     };
 
-    const priorMessages = messagesByConv[targetId] || [];
-    const updatedHistory = [...priorMessages, userMsg];
-
     setMessagesByConv((prev) => ({
       ...prev,
-      [targetId!]: updatedHistory,
+      [targetId!]: [...(prev[targetId!] || []), userMsg],
     }));
-
-    setConversations((prev) =>
-      prev.map((c) => {
-        if (c.id === targetId) {
-          const isFirstMessage = priorMessages.length === 0;
-          return {
-            ...c,
-            title: isFirstMessage
-              ? currentText.slice(0, 32) + (currentText.length > 32 ? "..." : "")
-              : c.title,
-            updatedAt: now,
-            messageCount: updatedHistory.length,
-          };
-        }
-        return c;
-      })
-    );
 
     const conv = conversations.find((c) => c.id === targetId);
     const modelToUse = conv?.model || selectedModel;
 
-    // Trigger real streaming completion
-    streamFromEndpoint(targetId, updatedHistory, modelToUse);
-  }, [composerValue, isGenerating, activeId, createConversation, messagesByConv, conversations, selectedModel, streamFromEndpoint]);
+    // Trigger streaming completion with persistent MongoDB backend
+    streamFromEndpoint(targetId, currentText, modelToUse);
+  }, [
+    composerValue,
+    isGenerating,
+    activeId,
+    createConversation,
+    conversations,
+    selectedModel,
+    streamFromEndpoint,
+  ]);
 
+  // Regenerate last assistant response
   const regenerateResponse = useCallback(() => {
     if (!activeId || isGenerating) return;
 
     const currentList = messagesByConv[activeId] || [];
     if (currentList.length === 0) return;
 
+    // Find the last user message to re-send
+    const lastUserMsg = [...currentList].reverse().find((m) => m.role === "user");
+    if (!lastUserMsg) return;
+
     // Remove the last assistant message if it exists
     let historyToUse = currentList;
     if (currentList[currentList.length - 1].role === "assistant") {
       historyToUse = currentList.slice(0, -1);
     }
-
-    if (historyToUse.length === 0) return;
 
     setMessagesByConv((prev) => ({
       ...prev,
@@ -373,7 +512,7 @@ export function useConversationStore() {
     const conv = conversations.find((c) => c.id === activeId);
     const modelToUse = conv?.model || selectedModel;
 
-    streamFromEndpoint(activeId, historyToUse, modelToUse);
+    streamFromEndpoint(activeId, lastUserMsg.content, modelToUse);
   }, [activeId, isGenerating, messagesByConv, conversations, selectedModel, streamFromEndpoint]);
 
   const handleSelectStarterPrompt = useCallback((prompt: string) => {
@@ -381,12 +520,21 @@ export function useConversationStore() {
   }, []);
 
   const changeModel = useCallback(
-    (newModel: string) => {
+    async (newModel: string) => {
       setSelectedModel(newModel);
       if (activeId) {
         setConversations((prev) =>
           prev.map((c) => (c.id === activeId ? { ...c, model: newModel } : c))
         );
+        try {
+          await fetch(`/api/conversations/${activeId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ model: newModel }),
+          });
+        } catch (err) {
+          console.error("Failed to update conversation model in database:", err);
+        }
       }
     },
     [activeId]
@@ -403,6 +551,8 @@ export function useConversationStore() {
     composerValue,
     setComposerValue,
     isGenerating,
+    isLoadingConversations,
+    isLoadingMessages,
     selectedModel,
     changeModel,
     isSettingsOpen,

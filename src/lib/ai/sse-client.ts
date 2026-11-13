@@ -1,7 +1,20 @@
 export interface SSEEventMap {
-  start: { conversationId: string; model: string; timestamp: string };
+  start: {
+    conversationId: string;
+    title?: string;
+    userMessageId?: string;
+    model: string;
+    timestamp: string;
+  };
   token: { content: string };
-  done: { finishReason: string; evalCount?: number; evalDuration?: number; totalDuration?: number };
+  done: {
+    conversationId?: string;
+    messageId?: string | null;
+    finishReason: string;
+    evalCount?: number;
+    evalDuration?: number;
+    totalDuration?: number;
+  };
   error: { code: string; message: string };
 }
 

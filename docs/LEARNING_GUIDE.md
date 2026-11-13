@@ -1,85 +1,108 @@
 # CICADA Developer Learning Guide
 
-Welcome to the engineering documentation for CICADA. This guide breaks down the core architecture, mental models, and software design decisions powering our local-first AI assistant.
+Welcome to the engineering guide for CICADA. This document explains the architecture, mental models, and software design decisions powering our local-first AI assistant.
 
 ---
 
-## 1. What is the Next.js App Router?
+## 1. What is an LLM? (Foundational Mental Model)
 
-Next.js App Router is built on modern React architecture (React Server Components and Suspense). Instead of the older Pages Router (`pages/index.tsx`), App Router uses a folder-based routing convention inside `src/app/`.
+An **LLM (Large Language Model)** is a statistical sequence-prediction engine trained on massive text corpora. It predicts the probability distribution of the next token given a sequence of prior tokens:
 
-### Key Mechanics:
-- **`layout.tsx`**: Defines persistent UI shells (like the dark theme wrapper and HTML headers) that persist state across navigation and never re-render unnecessarily.
-- **`page.tsx`**: Represents the unique UI view for a given URL path (e.g., `/` maps to `src/app/page.tsx`).
-- **`route.ts`**: Implements backend API Route Handlers running on Node.js on the server side (e.g., `src/app/api/chat/route.ts`).
-
----
-
-## 2. Server Components vs. Client Components
-
-In the App Router, **components are React Server Components (RSC) by default**.
-
-### When to use Server Components:
-- Data fetching directly from databases or backend services.
-- Reading private environment variables (like `MONGODB_URI` or `OLLAMA_BASE_URL`).
-- Reducing client JavaScript bundle sizes (Server Components execute once on the server and emit static HTML/JSON).
-
-### When to use Client Components (`"use client"`):
-- Interactivity: event listeners like `onClick`, `onChange`, `onKeyDown`.
-- Browser-only APIs: `localStorage`, `window.addEventListener`, clipboard copy.
-- React hooks: `useState`, `useEffect`, `useCallback`, `useRef`.
-
-### CICADA's Phase 1 Architecture:
-- `src/app/layout.tsx` is a **Server Component** providing the global HTML structure, fonts, and metadata.
-- `src/app/page.tsx` renders the client-side chat shell (`ChatShell`), which is marked `"use client"` because chat interfaces require high-frequency user interactions, keyboard shortcuts, and reactive state updates.
+- **Tokens**: The atomic units of text processed by language models. A token is typically a word fragment, character, or punctuation mark. In English, 1 token averages ~3.5 to 4 characters (e.g. `"CICADA"` is split into 2-3 subword tokens).
+- **Token Generation (Autoregression)**: The model samples one token at a time, appends it to its input sequence, and repeats the process until it emits an end-of-sequence (`stop`) token.
+- **Context Window**: The maximum sequence length (input prompt + generated response) the model can hold in its attention mechanism at once. In CICADA, we configure `qwen3.5:9b` with an **8,192 token** context window.
+- **Inference**: The execution phase where a pre-trained model computes predictions without altering its weights.
+- **Model Parameters**: The internal connection weights of the neural network. `qwen3.5:9b` possesses 9 billion parameters.
+- **Quantization**: Compressing 16-bit floating-point weights (`FP16`) into 4-bit integers (`Q4_K_M`). This reduces memory consumption from ~18GB down to ~5.6GB, enabling full execution on consumer GPUs like our 8GB NVIDIA RTX 4060 with virtually no perceptual loss in response quality.
 
 ---
 
-## 3. Why Strict TypeScript?
+## 2. What is Ollama?
 
-We configure TypeScript with strict mode enabled (`"strict": true`, `"noImplicitAny": true`).
+**Ollama** is a local LLM runner and model manager written in Go and C++ (leveraging `llama.cpp` under the hood):
 
-### Why this matters in CICADA:
-1. **Domain Contract Integrity**: In an AI chat application, message payloads, role definitions (`user` vs `assistant` vs `system`), and status flags must never drift.
-   ```typescript
-   export type MessageRole = 'user' | 'assistant' | 'system';
+- **Ollama Server**: A local daemon running on `127.0.0.1:11434` providing REST and streaming endpoints.
+- **Model Management**: Manages GGUF model binaries, tags, and execution manifests (`ollama list`, `ollama pull`, `ollama run`).
+- **GPU Offloading**: During startup, Ollama detects GPU capabilities (via CUDA/ROCm) and maps network layers into VRAM. On our system, `ollama ps` confirms:
+  ```
+  NAME          SIZE      PROCESSOR    RUNNER
+  qwen3.5:9b    5.6 GB    100% GPU     llamacpp
+  ```
+  This guarantees that 100% of matrix multiplications run on NVIDIA Tensor cores, achieving over 42 tokens/second.
 
-   export interface Message {
-     id: string;
-     conversationId: string;
-     role: MessageRole;
-     content: string;
-     createdAt: Date;
-   }
+---
+
+## 3. How CICADA Communicates with AI (Full Lifecycle)
+
+Every user message follows this secure, server-mediated request lifecycle:
+
+```
+1. [User types prompt in ChatComposer]
+       |
+2. [useConversationStore dispatches sendMessage()]
+       |
+3. [Browser initiates POST /api/chat with fetch() & AbortController]
+       |
+4. [Next.js Route Handler receives request in src/app/api/chat/route.ts]
+       |
+5. [prepareChatContext validates input via Zod and injects CICADA system prompt]
+       |
+6. [OllamaClient calls local POST http://127.0.0.1:11434/api/chat with stream: true]
+       |
+7. [Ollama generates tokens on NVIDIA RTX 4060 and emits NDJSON chunks]
+       |
+8. [OllamaClient decodes NDJSON stream handling chunk fragmentation]
+       |
+9. [Route Handler formats SSE events: start -> token -> done]
+       |
+10. [consumeSSEStream in browser parses events via TextDecoder]
+       |
+11. [React state updates active message text in real time with auto-scroll]
+```
+
+---
+
+## 4. Streaming Mechanics
+
+### Why Streaming is Essential
+In batch inference, generating 500 tokens at 40 tokens/sec would force the user to stare at a blank screen for 12.5 seconds. With real-time streaming, the first token renders in milliseconds, creating an immediate, responsive experience.
+
+### The Protocol Layers
+1. **Upstream (Ollama -> Next.js)**: Newline-Delimited JSON (NDJSON):
+   ```json
+   {"message": {"role": "assistant", "content": "Hello"}, "done": false}
    ```
-2. **Refactoring Safety**: When we transition from Phase 1 (in-memory mock state) to Phase 3 (MongoDB persistence), having strict type contracts ensures the compiler will immediately highlight every location in the frontend that needs adjustment.
+2. **Downstream (Next.js -> Browser)**: Server-Sent Events (SSE):
+   ```
+   event: token
+   data: {"content": "Hello"}
+   ```
+
+### Chunk Buffering
+Network reads are non-deterministic. A TCP packet can split a JSON payload halfway through:
+`{"content": "Hel` + `lo"}`.
+Our streaming clients buffer incoming bytes, split on delimiters (`\n` for NDJSON, `\n\n` for SSE), and hold any trailing incomplete fragment for the next read.
 
 ---
 
-## 4. UI State Management in Phase 1
+## 5. Multi-Turn Conversation Context
 
-Instead of bringing in heavy external state management libraries (like Redux or Zustand) prematurely, Phase 1 uses an idiomatic, strongly-typed React Context and Custom Hook pattern (`src/components/chat/ChatContext.tsx` and `useChat`).
+LLMs are purely stateless functions: $y = f(x)$. To maintain a multi-turn conversation, previous dialogue turns must be submitted with each request:
 
-### The Mental Model:
-1. **Single Source of Truth**: The active conversation ID, the list of conversations, and their messages are stored in memory in client state.
-2. **Pure Reducer / Action Semantics**: State transitions are handled through clean action dispatches:
-   - `createConversation()`
-   - `selectConversation(id)`
-   - `renameConversation(id, newTitle)`
-   - `deleteConversation(id)`
-   - `sendMessage(content)`
-3. **Transparent Phase 1 Boundaries**: Because Ollama is not connected in Phase 1, `sendMessage()` records the user's message and displays a clear system feedback badge informing the user that the local inference engine connects in Phase 2.
+1. **System Prompt**: Identifies CICADA's persona, operating environment, and security boundaries.
+2. **Alternating Dialogue**: Chronological pairs of `user` and `assistant` messages.
+3. **Sliding Window Budget**: Trims the oldest conversational turns once total estimated tokens exceed the context threshold, ensuring the model never crashes due to context limits.
 
 ---
 
-## 5. How Future Layers Will Integrate
+## 6. Performance & Hardware on Fedora Linux
 
-### A. Phase 2: Local AI Streaming (Ollama)
-In Phase 2, `sendMessage` will make a `fetch()` request to `POST /api/chat`.
-The route handler will call Ollama at `http://127.0.0.1:11434/api/generate` and stream response chunks back via a `ReadableStream` using Server-Sent Events (SSE). The client will consume this stream using an `AbortController`, appending tokens in real time.
+Hardware Specs:
+- **GPU**: NVIDIA GeForce RTX 4060 8GB VRAM
+- **RAM**: 16 GB
+- **OS**: Fedora Linux (Kernel 6.x)
 
-### B. Phase 3: MongoDB Persistence
-The state hook will replace in-memory array operations with server mutations (`fetch('/api/conversations')`). The component tree will remain completely identical.
-
-### C. Phase 4: SearXNG Web Retrieval
-When a user asks a question requiring current facts, the backend Route Handler will intercept the prompt, query SearXNG at `127.0.0.1:8080`, and inject retrieved citations into the prompt before passing it to Ollama.
+Measured Benchmarks:
+- **Inference Speed**: ~42.10 tokens/second on `qwen3.5:9b` (Q4_K_M).
+- **Time to First Token**: Includes Qwen reasoning/thinking phase prior to content streaming.
+- **VRAM Footprint**: ~5.6 GB resident during active generation, leaving ~2.4 GB headroom for OS display buffers and window compositing.

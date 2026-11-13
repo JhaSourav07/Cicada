@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const DEFAULT_MODEL_NAME = "qwen3.5:9b";
+
 /**
  * Model Configuration Schema for CICADA
  * Configured specifically for local inference on an NVIDIA RTX 4060 8GB VRAM / 16GB RAM system.
